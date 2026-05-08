@@ -16,8 +16,8 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: go run infer.go <model_path> [input_text] [--no-mmap] [--temp=0.7] [--tokens=10]")
-		fmt.Println("Example: go run infer.go /mnt/d/model/Qwen3-0.6B-Q8_0.gguf \"Hello\"")
-		fmt.Println("         go run infer.go /mnt/d/model/Qwen3-0.6B-Q8_0.gguf \"hi\" --no-mmap --temp=0")
+		fmt.Println("Example: go run infer.go <model.gguf> \"Hello\"")
+		fmt.Println("         go run infer.go <model.gguf> \"hi\" --no-mmap --temp=0")
 		os.Exit(1)
 	}
 
