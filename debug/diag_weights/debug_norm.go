@@ -5,8 +5,8 @@ import (
 	"math"
 	"os"
 
-	"gguf/gguf"
-	"gguf/model"
+	"github.com/adfnekc/go-qwen3-gguf/gguf"
+	"github.com/adfnekc/go-qwen3-gguf/model"
 )
 
 func main() {

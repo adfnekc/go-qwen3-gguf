@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// Tokenizer is the interface for token encoding/decoding.
+type Tokenizer interface {
+	Encode(text string) []int
+	Decode(tokens []int) string
+	GetToken(id int) (string, bool)
+	GetVocabSize() int
+}
+
 var byteToUnicode map[byte]rune
 var unicodeToByte map[rune]byte
 
@@ -71,7 +79,7 @@ var (
 	)
 )
 
-type Tokenizer struct {
+type BPETokenizer struct {
 	vocab            map[string]int
 	invVocab         map[int]string
 	merges           map[string]int
@@ -91,8 +99,8 @@ type pair struct {
 	rank   int
 }
 
-func NewTokenizerFromGGUF(reader GGUFReader) (*Tokenizer, error) {
-	tok := &Tokenizer{
+func NewTokenizerFromGGUF(reader GGUFReader) (*BPETokenizer, error) {
+	tok := &BPETokenizer{
 		vocab:            make(map[string]int),
 		invVocab:         make(map[int]string),
 		merges:           make(map[string]int),
@@ -159,7 +167,7 @@ func NewTokenizerFromGGUF(reader GGUFReader) (*Tokenizer, error) {
 	return tok, nil
 }
 
-func (tok *Tokenizer) Encode(text string) []int {
+func (tok *BPETokenizer) Encode(text string) []int {
 	var tokens []int
 
 	words := tok.preTokenize(text)
@@ -172,7 +180,7 @@ func (tok *Tokenizer) Encode(text string) []int {
 	return tokens
 }
 
-func (tok *Tokenizer) preTokenize(text string) []string {
+func (tok *BPETokenizer) preTokenize(text string) []string {
 	switch tok.pretokType {
 	case "qwen2", "qwen3", "gpt2":
 		matches := qwen3PreTokenizePattern.FindAllString(text, -1)
@@ -225,7 +233,7 @@ func isWordBoundary(r rune) bool {
 	return false
 }
 
-func (tok *Tokenizer) bpeEncode(word string) []int {
+func (tok *BPETokenizer) bpeEncode(word string) []int {
 	if len(word) == 0 {
 		return nil
 	}
@@ -278,7 +286,7 @@ func (tok *Tokenizer) bpeEncode(word string) []int {
 	return result
 }
 
-func (tok *Tokenizer) findBestPair(tokens []string) (*pair, int) {
+func (tok *BPETokenizer) findBestPair(tokens []string) (*pair, int) {
 	if len(tokens) < 2 {
 		return nil, -1
 	}
@@ -299,7 +307,7 @@ func (tok *Tokenizer) findBestPair(tokens []string) (*pair, int) {
 	return bestPair, bestRank
 }
 
-func (tok *Tokenizer) mergePair(tokens []string, p *pair) []string {
+func (tok *BPETokenizer) mergePair(tokens []string, p *pair) []string {
 	if p == nil {
 		return tokens
 	}
@@ -318,7 +326,7 @@ func (tok *Tokenizer) mergePair(tokens []string, p *pair) []string {
 	return result
 }
 
-func (tok *Tokenizer) Decode(tokens []int) string {
+func (tok *BPETokenizer) Decode(tokens []int) string {
 	var textBytes []byte
 
 	for _, tokenId := range tokens {
@@ -330,11 +338,11 @@ func (tok *Tokenizer) Decode(tokens []int) string {
 	return string(textBytes)
 }
 
-func (tok *Tokenizer) GetVocabSize() int {
+func (tok *BPETokenizer) GetVocabSize() int {
 	return len(tok.vocab)
 }
 
-func (tok *Tokenizer) GetToken(id int) (string, bool) {
+func (tok *BPETokenizer) GetToken(id int) (string, bool) {
 	token, ok := tok.invVocab[id]
 	if !ok {
 		return "", false
@@ -342,22 +350,22 @@ func (tok *Tokenizer) GetToken(id int) (string, bool) {
 	return token, ok
 }
 
-func (tok *Tokenizer) GetTokenId(token string) (int, bool) {
+func (tok *BPETokenizer) GetTokenId(token string) (int, bool) {
 	id, ok := tok.vocab[token]
 	return id, ok
 }
 
-func (tok *Tokenizer) IsSpecialToken(id int) bool {
+func (tok *BPETokenizer) IsSpecialToken(id int) bool {
 	_, ok := tok.specialTokens[id]
 	return ok
 }
 
-func (tok *Tokenizer) GetSpecialTokenName(id int) (string, bool) {
+func (tok *BPETokenizer) GetSpecialTokenName(id int) (string, bool) {
 	name, ok := tok.specialTokens[id]
 	return name, ok
 }
 
-func (tok *Tokenizer) GetSpecialTokenId(name string) (int, bool) {
+func (tok *BPETokenizer) GetSpecialTokenId(name string) (int, bool) {
 	id, ok := tok.invSpecialTokens[name]
 	return id, ok
 }
@@ -397,6 +405,18 @@ func (tok *SimpleTokenizer) Decode(tokens []int) string {
 	}
 	return string(bytes)
 }
+
+func (tok *SimpleTokenizer) GetToken(id int) (string, bool) {
+	token, ok := tok.invVocab[id]
+	return token, ok
+}
+
+func (tok *SimpleTokenizer) GetVocabSize() int {
+	return len(tok.vocab)
+}
+
+var _ Tokenizer = (*BPETokenizer)(nil)
+var _ Tokenizer = (*SimpleTokenizer)(nil)
 
 func sortMergesByRank(merges map[string]int) []pair {
 	var pairs []pair

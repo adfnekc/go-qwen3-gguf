@@ -1,4 +1,4 @@
-module gguf
+module github.com/adfnekc/go-qwen3-gguf
 
 go 1.25.2
 

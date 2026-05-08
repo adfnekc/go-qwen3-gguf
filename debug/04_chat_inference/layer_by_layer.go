@@ -5,10 +5,10 @@ import (
 	"math"
 	"os"
 
-	"gguf/gguf"
-	"gguf/model"
-	llmmath "gguf/math"
-	"gguf/tokenizer"
+	"github.com/adfnekc/go-qwen3-gguf/gguf"
+	"github.com/adfnekc/go-qwen3-gguf/model"
+	llmmath "github.com/adfnekc/go-qwen3-gguf/math"
+	"github.com/adfnekc/go-qwen3-gguf/tokenizer"
 )
 
 func main() {

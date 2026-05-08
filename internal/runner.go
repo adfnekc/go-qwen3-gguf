@@ -1,55 +1,29 @@
-package main
+package internal
 
 import (
 	"fmt"
-	"log"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
-	"gguf/gguf"
-	"gguf/model"
-	"gguf/tokenizer"
+	"github.com/adfnekc/go-qwen3-gguf/gguf"
+	"github.com/adfnekc/go-qwen3-gguf/model"
+	"github.com/adfnekc/go-qwen3-gguf/tokenizer"
 )
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run infer.go <model_path> [input_text] [--no-mmap] [--temp=0.7] [--tokens=10]")
-		fmt.Println("Example: go run infer.go <model.gguf> \"Hello\"")
-		fmt.Println("         go run infer.go <model.gguf> \"hi\" --no-mmap --temp=0")
-		os.Exit(1)
-	}
+type RunOptions struct {
+	ForceNoMMap bool
+	UseChat     bool
+	Debug       bool
+	Temperature float32
+	MaxTokens   int
+}
 
-	modelPath := os.Args[1]
-	inputText := "Hello, world!"
-	forceNoMMap := false
-	maxNewTokens := 10
-	temperature := float32(0.7)
-	useChat := true
-	debug := false
+type Runner struct{}
 
-	for i := 2; i < len(os.Args); i++ {
-		arg := os.Args[i]
-		if arg == "--no-mmap" {
-			forceNoMMap = true
-		} else if strings.HasPrefix(arg, "--temp=") {
-			temp, err := strconv.ParseFloat(arg[7:], 32)
-			if err == nil {
-				temperature = float32(temp)
-			}
-		} else if strings.HasPrefix(arg, "--tokens=") {
-			n, err := strconv.Atoi(arg[9:])
-			if err == nil {
-				maxNewTokens = n
-			}
-		} else if arg == "--no-chat" {
-			useChat = false
-		} else if arg == "--debug" {
-			debug = true
-		} else {
-			inputText = arg
-		}
+func NewRunner() *Runner { return &Runner{} }
+
+func (r *Runner) Run(modelPath, inputText string, opts RunOptions) error {
+	if opts.MaxTokens <= 0 {
+		opts.MaxTokens = 10
 	}
 
 	fmt.Println("========================================")
@@ -57,7 +31,7 @@ func main() {
 	fmt.Println("========================================")
 	fmt.Printf("Model: %s\n", modelPath)
 	fmt.Printf("Input: %s\n", inputText)
-	fmt.Printf("Max New Tokens: %d\n", maxNewTokens)
+	fmt.Printf("Max New Tokens: %d\n", opts.MaxTokens)
 	fmt.Println()
 
 	var reader *gguf.GGUFReader
@@ -71,22 +45,21 @@ func main() {
 	startTime := time.Now()
 
 	reader = gguf.NewGGUFReader()
-	if forceNoMMap {
+	if opts.ForceNoMMap {
 		fmt.Println("  Using regular file loading (--no-mmap)")
 		if err := reader.LoadFromFile(modelPath); err != nil {
-			log.Fatalf("Failed to load GGUF file: %v", err)
+			return fmt.Errorf("failed to load GGUF file: %w", err)
 		}
 		usingMMap = false
 	} else {
 		fmt.Println("  Trying mmap loading...")
 		mmapFile, err = reader.LoadFromFileMMap(modelPath)
 		if err != nil {
-			log.Printf("Warning: Failed to load with mmap: %v", err)
+			fmt.Printf("Warning: Failed to load with mmap: %v\n", err)
 			fmt.Println("Falling back to regular file loading...")
-
 			reader = gguf.NewGGUFReader()
 			if err := reader.LoadFromFile(modelPath); err != nil {
-				log.Fatalf("Failed to load GGUF file: %v", err)
+				return fmt.Errorf("failed to load GGUF file: %w", err)
 			}
 			usingMMap = false
 		} else {
@@ -97,7 +70,11 @@ func main() {
 
 	loadTime := time.Since(startTime)
 	fmt.Printf("GGUF file loaded successfully in %v!\n", loadTime)
-	fmt.Printf("Loading method: %s\n", map[bool]string{true: "mmap", false: "regular file"}[usingMMap])
+	method := "regular file"
+	if usingMMap {
+		method = "mmap"
+	}
+	fmt.Printf("Loading method: %s\n", method)
 	fmt.Println()
 
 	reader.PrintInfo()
@@ -108,7 +85,7 @@ func main() {
 
 	config, err = model.LoadQwen3Config(reader)
 	if err != nil {
-		log.Fatalf("Failed to load model config: %v", err)
+		return fmt.Errorf("failed to load model config: %w", err)
 	}
 
 	fmt.Printf("Model Config:\n")
@@ -139,7 +116,7 @@ func main() {
 	}
 
 	if err != nil {
-		log.Fatalf("Failed to load weights: %v", err)
+		return fmt.Errorf("failed to load weights: %w", err)
 	}
 
 	weightsLoadTime := time.Since(weightsStartTime)
@@ -154,12 +131,12 @@ func main() {
 
 	tok, err := tokenizer.NewTokenizerFromGGUF(reader)
 	if err != nil {
-		log.Printf("Warning: Failed to load BPE tokenizer: %v", err)
+		fmt.Printf("Warning: Failed to load BPE tokenizer: %v\n", err)
 		fmt.Println("Falling back to simple byte tokenizer...")
 		simpleTok := tokenizer.NewSimpleTokenizer()
 		tokens := simpleTok.Encode(inputText)
-		runInference(mod, simpleTok, tokens, maxNewTokens, temperature, debug)
-		return
+		runInference(mod, simpleTok, tokens, opts)
+		return nil
 	}
 
 	fmt.Printf("Tokenizer loaded successfully!\n")
@@ -175,26 +152,15 @@ func main() {
 	fmt.Printf("Encoded tokens: %v\n", tokens)
 	fmt.Printf("Token count: %d\n", len(tokens))
 
-	if useChat {
-		// Apply Qwen3 chat template using raw special token IDs
-		imStart := 151644
-		imEnd := 151645
-		chatTokens := []int{imStart}
-		chatTokens = append(chatTokens, tok.Encode("user\n")...)
-		chatTokens = append(chatTokens, tokens...)
-		chatTokens = append(chatTokens, imEnd)
-		// Use raw token IDs for the assistant header to avoid BPE splitting
-		chatTokens = append(chatTokens, 198) // "\n"
-		chatTokens = append(chatTokens, imStart)
-		chatTokens = append(chatTokens, tok.Encode("assistant\n")...)
-
+	if opts.UseChat {
+		chatTokens := model.ApplyQwen3ChatTemplate(tok, inputText)
 		fmt.Printf("\nChat template applied:\n")
 		fmt.Printf("  Encoded tokens: %v\n", chatTokens)
 		fmt.Printf("  Token count: %d\n", len(chatTokens))
 		tokens = chatTokens
 	}
 
-	if len(tokens) > 0 {
+	if len(tokens) > 0 && !opts.Debug {
 		fmt.Printf("\nFirst few tokens decoded:\n")
 		for i := 0; i < len(tokens) && i < 5; i++ {
 			tokenStr, ok := tok.GetToken(tokens[i])
@@ -206,20 +172,22 @@ func main() {
 		}
 	}
 
-	runInference(mod, tok, tokens, maxNewTokens, temperature, debug)
+	runInference(mod, tok, tokens, opts)
+	return nil
 }
 
-func runInference(mod *model.Qwen3Model, tok interface{}, tokens []int, maxNewTokens int, temperature float32, debug bool) {
+func runInference(mod *model.Qwen3Model, tok tokenizer.Tokenizer, tokens []int, opts RunOptions) {
 	fmt.Println("\n========================================")
 	fmt.Println("Running Inference")
 	fmt.Println("========================================")
-	fmt.Printf("Generating %d new tokens...\n", maxNewTokens)
+	fmt.Printf("Generating %d new tokens...\n", opts.MaxTokens)
 
 	inferenceStartTime := time.Now()
 
-	generatedTokens, err := mod.Generate(tokens, maxNewTokens, temperature)
+	generatedTokens, err := mod.Generate(tokens, opts.MaxTokens, opts.Temperature)
 	if err != nil {
-		log.Fatalf("Inference failed: %v", err)
+		fmt.Printf("Inference failed: %v\n", err)
+		return
 	}
 
 	inferenceTime := time.Since(inferenceStartTime)
@@ -233,34 +201,19 @@ func runInference(mod *model.Qwen3Model, tok interface{}, tokens []int, maxNewTo
 	fmt.Printf("New tokens: %d\n", len(generatedTokens)-len(tokens))
 	fmt.Printf("Generated token IDs: %v\n", generatedTokens)
 
-	if t, ok := tok.(*tokenizer.Tokenizer); ok {
-		fmt.Printf("\nToken-by-token decoding:\n")
-		for i, id := range generatedTokens {
-			if tokenStr, ok := t.GetToken(id); ok {
-				fmt.Printf("  Token %d: ID=%d, Text=%q\n", i, id, tokenStr)
-			}
+	fmt.Printf("\nToken-by-token decoding:\n")
+	for i, id := range generatedTokens {
+		if tokenStr, ok := tok.GetToken(id); ok {
+			fmt.Printf("  Token %d: ID=%d, Text=%q\n", i, id, tokenStr)
 		}
 	}
 
-	var decodedText string
-	switch t := tok.(type) {
-	case *tokenizer.Tokenizer:
-		decodedText = t.Decode(generatedTokens)
-	case *tokenizer.SimpleTokenizer:
-		decodedText = t.Decode(generatedTokens)
-	}
-
+	decodedText := tok.Decode(generatedTokens)
 	fmt.Printf("\nDecoded text: %s\n", decodedText)
 
 	if len(generatedTokens) > len(tokens) {
 		newTokens := generatedTokens[len(tokens):]
-		var newDecoded string
-		switch t := tok.(type) {
-		case *tokenizer.Tokenizer:
-			newDecoded = t.Decode(newTokens)
-		case *tokenizer.SimpleTokenizer:
-			newDecoded = t.Decode(newTokens)
-		}
+		newDecoded := tok.Decode(newTokens)
 		fmt.Printf("\nNewly generated tokens (%d):\n", len(newTokens))
 		fmt.Printf("  Token IDs: %v\n", newTokens)
 		fmt.Printf("  Decoded: %s\n", newDecoded)

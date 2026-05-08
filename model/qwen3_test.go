@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	llmmath "gguf/math"
+	llmmath "github.com/adfnekc/go-qwen3-gguf/math"
 )
 
 func TestGenerateWithMockWeights(t *testing.T) {

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"math"
 	
-	"gguf/model"
-	"gguf/gguf"
-	llmmath "gguf/math"
+	"github.com/adfnekc/go-qwen3-gguf/model"
+	"github.com/adfnekc/go-qwen3-gguf/gguf"
+	llmmath "github.com/adfnekc/go-qwen3-gguf/math"
 )
 
 func computeRMS(hs []float32) float32 {

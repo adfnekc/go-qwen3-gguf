@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"gguf/gguf"
+	"github.com/adfnekc/go-qwen3-gguf/gguf"
 )
 
 func main() {

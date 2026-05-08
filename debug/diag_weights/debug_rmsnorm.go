@@ -4,9 +4,9 @@ import (
     "fmt"
     "math"
     "os"
-    "gguf/gguf"
-    "gguf/model"
-    llmmath "gguf/math"
+    "github.com/adfnekc/go-qwen3-gguf/gguf"
+    "github.com/adfnekc/go-qwen3-gguf/model"
+    llmmath "github.com/adfnekc/go-qwen3-gguf/math"
 )
 
 func main() {

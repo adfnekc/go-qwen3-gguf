@@ -3,7 +3,7 @@ package model
 import (
 	"fmt"
 
-	"gguf/gguf"
+	"github.com/adfnekc/go-qwen3-gguf/gguf"
 )
 
 type Qwen3Config struct {
@@ -82,13 +82,10 @@ func LoadQwen3Config(reader GGUFReader) (*Qwen3Config, error) {
 
 	if val, ok = reader.GetMetadataInt("qwen3.attention.key_length"); ok {
 		config.AttentionKeyLength = int(val)
-		fmt.Printf("DEBUG: key_length from qwen3 metadata: %d\n", val)
 	} else if val, ok = reader.GetMetadataInt("llama.attention.key_length"); ok {
 		config.AttentionKeyLength = int(val)
-		fmt.Printf("DEBUG: key_length from llama metadata: %d\n", val)
 	} else {
 		config.AttentionKeyLength = config.EmbeddingLength / config.AttentionHeadCount
-		fmt.Printf("DEBUG: key_length from default: %d\n", config.AttentionKeyLength)
 	}
 
 	if val, ok = reader.GetMetadataInt("qwen3.attention.value_length"); ok {

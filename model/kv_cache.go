@@ -1,57 +1,44 @@
 package model
 
 type KVCache struct {
-	Keys    [][][]float32
-	Values  [][][]float32
-	Size    []int
-	MaxSize int
+	Keys     [][][]float32
+	Values   [][][]float32
+	Size     []int
 }
 
 func NewKVCache(maxSeqLen, nLayers, nKvHeads, headDim int) *KVCache {
 	keys := make([][][]float32, nLayers)
 	values := make([][][]float32, nLayers)
 	size := make([]int, nLayers)
-
 	for i := 0; i < nLayers; i++ {
-		keys[i] = make([][]float32, maxSeqLen)
-		values[i] = make([][]float32, maxSeqLen)
-		for j := 0; j < maxSeqLen; j++ {
-			keys[i][j] = make([]float32, nKvHeads*headDim)
-			values[i][j] = make([]float32, nKvHeads*headDim)
-		}
+		keys[i] = make([][]float32, 0, maxSeqLen)
+		values[i] = make([][]float32, 0, maxSeqLen)
 	}
-
-	return &KVCache{
-		Keys:    keys,
-		Values:  values,
-		Size:    size,
-		MaxSize: maxSeqLen,
-	}
+	return &KVCache{Keys: keys, Values: values, Size: size}
 }
 
-func (cache *KVCache) Update(layerIdx int, keys, values []float32, nKvHeads, headDim int) {
-	if cache.Size[layerIdx] >= cache.MaxSize {
-		return
-	}
-
-	copy(cache.Keys[layerIdx][cache.Size[layerIdx]], keys)
-	copy(cache.Values[layerIdx][cache.Size[layerIdx]], values)
-	cache.Size[layerIdx]++
+func (c *KVCache) Update(layer int, key, value []float32, nKvHeads, headDim int) {
+	k := make([]float32, len(key))
+	v := make([]float32, len(value))
+	copy(k, key)
+	copy(v, value)
+	c.Keys[layer] = append(c.Keys[layer], k)
+	c.Values[layer] = append(c.Values[layer], v)
+	c.Size[layer]++
 }
 
-func (cache *KVCache) GetKV(layerIdx int, nKvHeads, headDim int) ([]float32, []float32) {
-	size := cache.Size[layerIdx]
-	keys := make([]float32, size*nKvHeads*headDim)
-	values := make([]float32, size*nKvHeads*headDim)
-
+func (c *KVCache) GetKV(layer int, nKvHeads, headDim int) ([]float32, []float32) {
+	size := c.Size[layer]
+	kvSize := nKvHeads * headDim
+	keys := make([]float32, size*kvSize)
+	values := make([]float32, size*kvSize)
 	for i := 0; i < size; i++ {
-		copy(keys[i*nKvHeads*headDim:], cache.Keys[layerIdx][i])
-		copy(values[i*nKvHeads*headDim:], cache.Values[layerIdx][i])
+		copy(keys[i*kvSize:], c.Keys[layer][i])
+		copy(values[i*kvSize:], c.Values[layer][i])
 	}
-
 	return keys, values
 }
 
-func (cache *KVCache) GetSize(layerIdx int) int {
-	return cache.Size[layerIdx]
+func (c *KVCache) GetSize(layer int) int {
+	return c.Size[layer]
 }

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"gguf/gguf"
+	"github.com/adfnekc/go-qwen3-gguf/gguf"
 )
 
 type ModelLoader struct {

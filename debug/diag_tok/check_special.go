@@ -3,8 +3,8 @@ package main
 import (
     "fmt"
     "os"
-    "gguf/gguf"
-    "gguf/tokenizer"
+    "github.com/adfnekc/go-qwen3-gguf/gguf"
+    "github.com/adfnekc/go-qwen3-gguf/tokenizer"
 )
 
 func main() {
