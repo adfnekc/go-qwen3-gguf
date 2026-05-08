@@ -3,13 +3,14 @@ package model
 type KVCache struct {
 	Keys    [][][]float32
 	Values  [][][]float32
-	Size    int
+	Size    []int
 	MaxSize int
 }
 
 func NewKVCache(maxSeqLen, nLayers, nKvHeads, headDim int) *KVCache {
 	keys := make([][][]float32, nLayers)
 	values := make([][][]float32, nLayers)
+	size := make([]int, nLayers)
 
 	for i := 0; i < nLayers; i++ {
 		keys[i] = make([][]float32, maxSeqLen)
@@ -23,29 +24,34 @@ func NewKVCache(maxSeqLen, nLayers, nKvHeads, headDim int) *KVCache {
 	return &KVCache{
 		Keys:    keys,
 		Values:  values,
-		Size:    0,
+		Size:    size,
 		MaxSize: maxSeqLen,
 	}
 }
 
 func (cache *KVCache) Update(layerIdx int, keys, values []float32, nKvHeads, headDim int) {
-	if cache.Size >= cache.MaxSize {
+	if cache.Size[layerIdx] >= cache.MaxSize {
 		return
 	}
 
-	copy(cache.Keys[layerIdx][cache.Size], keys)
-	copy(cache.Values[layerIdx][cache.Size], values)
-	cache.Size++
+	copy(cache.Keys[layerIdx][cache.Size[layerIdx]], keys)
+	copy(cache.Values[layerIdx][cache.Size[layerIdx]], values)
+	cache.Size[layerIdx]++
 }
 
 func (cache *KVCache) GetKV(layerIdx int, nKvHeads, headDim int) ([]float32, []float32) {
-	keys := make([]float32, cache.Size*nKvHeads*headDim)
-	values := make([]float32, cache.Size*nKvHeads*headDim)
+	size := cache.Size[layerIdx]
+	keys := make([]float32, size*nKvHeads*headDim)
+	values := make([]float32, size*nKvHeads*headDim)
 
-	for i := 0; i < cache.Size; i++ {
+	for i := 0; i < size; i++ {
 		copy(keys[i*nKvHeads*headDim:], cache.Keys[layerIdx][i])
 		copy(values[i*nKvHeads*headDim:], cache.Values[layerIdx][i])
 	}
 
 	return keys, values
+}
+
+func (cache *KVCache) GetSize(layerIdx int) int {
+	return cache.Size[layerIdx]
 }

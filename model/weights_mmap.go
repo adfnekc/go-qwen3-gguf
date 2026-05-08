@@ -28,6 +28,10 @@ func calculateTensorSize(tensor *gguf.GGUFTensorInfo) uint64 {
 	}
 }
 
+func tensorAbsOffset(reader *gguf.GGUFReader, tensor *gguf.GGUFTensorInfo) int64 {
+	return reader.DataStart + int64(tensor.Offset)
+}
+
 func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile *gguf.MMapFile) (*Qwen3Weights, error) {
 	weights := &Qwen3Weights{
 		BlockWeights: make([]*Qwen3BlockWeights, config.BlockCount),
@@ -40,7 +44,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 	if !ok {
 		return nil, fmt.Errorf("token_embd.weight not found")
 	}
-	data, err := mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+	data, err := mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token_embd.weight data: %w", err)
 	}
@@ -56,7 +60,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 	if !ok {
 		return nil, fmt.Errorf("output_norm.weight not found")
 	}
-	data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+	data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get output_norm.weight data: %w", err)
 	}
@@ -70,7 +74,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		tensorInfo, _, ok = reader.GetTensor("lm_head.weight")
 	}
 	if ok {
-		data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+		data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to get output.weight data: %w", err)
 		}
@@ -109,7 +113,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		normNames := []string{"attn_norm.weight", "input_layernorm.weight"}
 		for _, name := range normNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -124,7 +128,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		qNames := []string{"attn_q.weight", "self_attn.q_proj.weight"}
 		for _, name := range qNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -139,7 +143,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		kNames := []string{"attn_k.weight", "self_attn.k_proj.weight"}
 		for _, name := range kNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -154,7 +158,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		vNames := []string{"attn_v.weight", "self_attn.v_proj.weight"}
 		for _, name := range vNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -169,7 +173,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		qNormNames := []string{"attn_q_norm.weight", "self_attn.q_norm.weight"}
 		for _, name := range qNormNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -181,7 +185,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		kNormNames := []string{"attn_k_norm.weight", "self_attn.k_norm.weight"}
 		for _, name := range kNormNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -193,7 +197,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		oNames := []string{"attn_output.weight", "self_attn.o_proj.weight"}
 		for _, name := range oNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -208,7 +212,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		ffnNormNames := []string{"ffn_norm.weight", "post_attention_layernorm.weight"}
 		for _, name := range ffnNormNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -223,7 +227,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		gateNames := []string{"ffn_gate.weight", "mlp.gate_proj.weight"}
 		for _, name := range gateNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -238,7 +242,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		upNames := []string{"ffn_up.weight", "mlp.up_proj.weight"}
 		for _, name := range upNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}
@@ -253,7 +257,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		downNames := []string{"ffn_down.weight", "mlp.down_proj.weight"}
 		for _, name := range downNames {
 			if tensorInfo, _, ok = reader.GetTensor(prefix + name); ok {
-				data, err = mmapFile.GetSlice(int64(tensorInfo.Offset), int(calculateTensorSize(tensorInfo)))
+				data, err = mmapFile.GetSlice(tensorAbsOffset(reader, tensorInfo), int(calculateTensorSize(tensorInfo)))
 				if err != nil {
 					return nil, fmt.Errorf("failed to get %s data: %w", prefix+name, err)
 				}

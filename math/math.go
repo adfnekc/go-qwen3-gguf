@@ -1,6 +1,9 @@
 package math
 
-import "math"
+import (
+	"math"
+	"math/rand"
+)
 
 func MatMul(A, B []float32, M, N, K int) []float32 {
 	if len(A) != M*K || len(B) != K*N {
@@ -160,26 +163,60 @@ func SwiGLU(x1, x2 []float32) []float32 {
 	return result
 }
 
-func RoPE(q, k []float32, pos int, dim int, ropeFreqBase float32) ([]float32, []float32) {
-	if len(q) != dim || len(k) != dim {
+type RoPEMode int
+
+const (
+	RoPE_NORMAL RoPEMode = iota // consecutive pairs: (0,1), (2,3), ...
+	RoPE_NEOX                    // first-half with second-half: (0, dim/2), (1, dim/2+1), ...
+)
+
+// RoPE applies Rotary Position Embedding.
+// mode=RoPE_NORMAL: pairs (i, i+1) with freq_base^(-i/dim)
+// mode=RoPE_NEOX:   pairs (i, i+dim/2) with freq_base^(-2i/dim))
+func RoPE(q, k []float32, pos int, dim int, ropeFreqBase float32, mode RoPEMode) ([]float32, []float32) {
+	if (q != nil && len(q) != dim) || (k != nil && len(k) != dim) {
 		return nil, nil
 	}
 
-	qOut := make([]float32, dim)
-	kOut := make([]float32, dim)
+	var qOut []float32
+	var kOut []float32
 
-	for i := 0; i < dim; i += 2 {
+	if q != nil {
+		qOut = make([]float32, dim)
+	}
+	if k != nil {
+		kOut = make([]float32, dim)
+	}
+
+	half := dim / 2
+	for j := 0; j < half; j++ {
+		i := 2 * j
 		freq := 1.0 / float32(math.Pow(float64(ropeFreqBase), float64(i)/float64(dim)))
 		angle := float32(pos) * freq
 
 		cos := float32(math.Cos(float64(angle)))
 		sin := float32(math.Sin(float64(angle)))
 
-		qOut[i] = q[i]*cos - q[i+1]*sin
-		qOut[i+1] = q[i]*sin + q[i+1]*cos
-
-		kOut[i] = k[i]*cos - k[i+1]*sin
-		kOut[i+1] = k[i]*sin + k[i+1]*cos
+		switch mode {
+		case RoPE_NORMAL:
+			if q != nil {
+				qOut[i] = q[i]*cos - q[i+1]*sin
+				qOut[i+1] = q[i]*sin + q[i+1]*cos
+			}
+			if k != nil {
+				kOut[i] = k[i]*cos - k[i+1]*sin
+				kOut[i+1] = k[i]*sin + k[i+1]*cos
+			}
+		case RoPE_NEOX:
+			if q != nil {
+				qOut[j] = q[j]*cos - q[j+half]*sin
+				qOut[j+half] = q[j]*sin + q[j+half]*cos
+			}
+			if k != nil {
+				kOut[j] = k[j]*cos - k[j+half]*sin
+				kOut[j+half] = k[j]*sin + k[j+half]*cos
+			}
+		}
 	}
 
 	return qOut, kOut
@@ -218,6 +255,24 @@ func Argmax(v []float32) int {
 		}
 	}
 	return maxIdx
+}
+
+func SampleCategorical(probs []float32) int {
+	if len(probs) == 0 {
+		return -1
+	}
+
+	r := rand.Float32()
+	cumulative := float32(0.0)
+	
+	for i := range probs {
+		cumulative += probs[i]
+		if r < cumulative {
+			return i
+		}
+	}
+	
+	return len(probs) - 1
 }
 
 func EmbeddingLookupTokenFirst(embeddings []float32, vocabSize, embeddingDim int, tokenId int) []float32 {

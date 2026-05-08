@@ -92,6 +92,7 @@ type GGUFReader struct {
 	Metadata   map[string]GGUFMetadataItem
 	Tensors    []GGUFTensorInfo
 	TensorData map[string][]byte
+	DataStart  int64
 	byteOrder  binary.ByteOrder
 }
 

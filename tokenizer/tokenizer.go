@@ -2,6 +2,7 @@ package tokenizer
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -58,6 +59,18 @@ type GGUFReader interface {
 	GetMetadataInt(key string) (int64, bool)
 }
 
+// Pre-tokenization regex patterns for different architectures
+var (
+	qwen3PreTokenizePattern = regexp.MustCompile(
+		`'s|'t|'re|'ve|'m|'ll|'d|` +
+			`[^\r\n\p{L}\p{N}]?\p{L}+|` +
+			`\p{N}|` +
+			` ?[^\s\p{L}\p{N}]+[\r\n]*|` +
+			`\s*[\r\n]+|` +
+			`\s+`,
+	)
+)
+
 type Tokenizer struct {
 	vocab            map[string]int
 	invVocab         map[int]string
@@ -69,6 +82,7 @@ type Tokenizer struct {
 	byteDecoder      map[string]byte
 	addBosToken      bool
 	addEosToken      bool
+	pretokType       string // type of pretokenizer: "qwen2", "gpt2", etc.
 }
 
 type pair struct {
@@ -137,15 +151,18 @@ func NewTokenizerFromGGUF(reader GGUFReader) (*Tokenizer, error) {
 		tok.invSpecialTokens["<|endoftext|>"] = int(eosTok)
 	}
 
+	// Read the pretokenization type from GGUF metadata
+	if pretok, ok := reader.GetMetadataString("tokenizer.ggml.pre"); ok {
+		tok.pretokType = pretok
+	}
+
 	return tok, nil
 }
 
 func (tok *Tokenizer) Encode(text string) []int {
 	var tokens []int
 
-	normalized := tok.preTokenize(text)
-
-	words := splitIntoWords(normalized)
+	words := tok.preTokenize(text)
 
 	for _, word := range words {
 		wordTokens := tok.bpeEncode(word)
@@ -155,8 +172,15 @@ func (tok *Tokenizer) Encode(text string) []int {
 	return tokens
 }
 
-func (tok *Tokenizer) preTokenize(text string) string {
-	return text
+func (tok *Tokenizer) preTokenize(text string) []string {
+	switch tok.pretokType {
+	case "qwen2", "qwen3", "gpt2":
+		matches := qwen3PreTokenizePattern.FindAllString(text, -1)
+		if len(matches) > 0 {
+			return matches
+		}
+	}
+	return splitIntoWords(text)
 }
 
 func splitIntoWords(text string) []string {
@@ -210,24 +234,9 @@ func (tok *Tokenizer) bpeEncode(word string) []int {
 		return []int{id}
 	}
 
-	unicodeStr := bytesToUnicode([]byte(word))
-
 	var tokens []string
-	for _, r := range unicodeStr {
-		charStr := string(r)
-		if _, ok := tok.vocab[charStr]; ok {
-			tokens = append(tokens, charStr)
-		} else {
-			bytes := []byte(string(r))
-			for _, b := range bytes {
-				byteStr := string(byteToUnicode[b])
-				if _, ok := tok.vocab[byteStr]; ok {
-					tokens = append(tokens, byteStr)
-				} else {
-					tokens = append(tokens, string(byteToUnicode[0]))
-				}
-			}
-		}
+	for _, b := range []byte(word) {
+		tokens = append(tokens, bytesToUnicode([]byte{b}))
 	}
 
 	if len(tokens) == 0 {
@@ -251,10 +260,9 @@ func (tok *Tokenizer) bpeEncode(word string) []int {
 		if id, ok := tok.vocab[t]; ok {
 			result = append(result, id)
 		} else {
-			bytes := unicodeToBytes(t)
-			for _, b := range bytes {
-				byteStr := string(byteToUnicode[b])
-				if id, ok := tok.vocab[byteStr]; ok {
+			for _, b := range []byte(t) {
+				id, ok := tok.vocab[bytesToUnicode([]byte{b})]
+				if ok {
 					result = append(result, id)
 				} else {
 					result = append(result, 0)
@@ -315,8 +323,7 @@ func (tok *Tokenizer) Decode(tokens []int) string {
 
 	for _, tokenId := range tokens {
 		if token, ok := tok.invVocab[tokenId]; ok {
-			bytes := unicodeToBytes(token)
-			textBytes = append(textBytes, bytes...)
+			textBytes = append(textBytes, unicodeToBytes(token)...)
 		}
 	}
 
@@ -332,7 +339,7 @@ func (tok *Tokenizer) GetToken(id int) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return string(unicodeToBytes(token)), ok
+	return token, ok
 }
 
 func (tok *Tokenizer) GetTokenId(token string) (int, bool) {

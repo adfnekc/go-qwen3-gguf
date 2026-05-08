@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gguf/gguf"
@@ -13,20 +15,42 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run infer.go <model_path> [input_text]")
+		fmt.Println("Usage: go run infer.go <model_path> [input_text] [--no-mmap] [--temp=0.7] [--tokens=10]")
 		fmt.Println("Example: go run infer.go /mnt/d/model/Qwen3-0.6B-Q8_0.gguf \"Hello\"")
+		fmt.Println("         go run infer.go /mnt/d/model/Qwen3-0.6B-Q8_0.gguf \"hi\" --no-mmap --temp=0")
 		os.Exit(1)
 	}
 
 	modelPath := os.Args[1]
 	inputText := "Hello, world!"
-
-	if len(os.Args) > 2 {
-		inputText = os.Args[2]
-	}
-
+	forceNoMMap := false
 	maxNewTokens := 10
-	temperature := float32(0.0)
+	temperature := float32(0.7)
+	useChat := true
+	debug := false
+
+	for i := 2; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if arg == "--no-mmap" {
+			forceNoMMap = true
+		} else if strings.HasPrefix(arg, "--temp=") {
+			temp, err := strconv.ParseFloat(arg[7:], 32)
+			if err == nil {
+				temperature = float32(temp)
+			}
+		} else if strings.HasPrefix(arg, "--tokens=") {
+			n, err := strconv.Atoi(arg[9:])
+			if err == nil {
+				maxNewTokens = n
+			}
+		} else if arg == "--no-chat" {
+			useChat = false
+		} else if arg == "--debug" {
+			debug = true
+		} else {
+			inputText = arg
+		}
+	}
 
 	fmt.Println("========================================")
 	fmt.Println("GGUF Model Inference")
@@ -43,23 +67,32 @@ func main() {
 	var err error
 	var usingMMap bool
 
-	fmt.Println("Loading GGUF file with mmap (default)...")
+	fmt.Println("Loading GGUF file...")
 	startTime := time.Now()
 
 	reader = gguf.NewGGUFReader()
-	mmapFile, err = reader.LoadFromFileMMap(modelPath)
-	if err != nil {
-		log.Printf("Warning: Failed to load with mmap: %v", err)
-		fmt.Println("Falling back to regular file loading...")
-		
-		reader = gguf.NewGGUFReader()
+	if forceNoMMap {
+		fmt.Println("  Using regular file loading (--no-mmap)")
 		if err := reader.LoadFromFile(modelPath); err != nil {
 			log.Fatalf("Failed to load GGUF file: %v", err)
 		}
 		usingMMap = false
 	} else {
-		usingMMap = true
-		defer mmapFile.Close()
+		fmt.Println("  Trying mmap loading...")
+		mmapFile, err = reader.LoadFromFileMMap(modelPath)
+		if err != nil {
+			log.Printf("Warning: Failed to load with mmap: %v", err)
+			fmt.Println("Falling back to regular file loading...")
+
+			reader = gguf.NewGGUFReader()
+			if err := reader.LoadFromFile(modelPath); err != nil {
+				log.Fatalf("Failed to load GGUF file: %v", err)
+			}
+			usingMMap = false
+		} else {
+			usingMMap = true
+			defer mmapFile.Close()
+		}
 	}
 
 	loadTime := time.Since(startTime)
@@ -125,7 +158,7 @@ func main() {
 		fmt.Println("Falling back to simple byte tokenizer...")
 		simpleTok := tokenizer.NewSimpleTokenizer()
 		tokens := simpleTok.Encode(inputText)
-		runInference(mod, simpleTok, tokens, maxNewTokens, temperature)
+		runInference(mod, simpleTok, tokens, maxNewTokens, temperature, debug)
 		return
 	}
 
@@ -137,9 +170,29 @@ func main() {
 	fmt.Println("========================================")
 
 	tokens := tok.Encode(inputText)
+
 	fmt.Printf("Input text: %s\n", inputText)
 	fmt.Printf("Encoded tokens: %v\n", tokens)
 	fmt.Printf("Token count: %d\n", len(tokens))
+
+	if useChat {
+		// Apply Qwen3 chat template using raw special token IDs
+		imStart := 151644
+		imEnd := 151645
+		chatTokens := []int{imStart}
+		chatTokens = append(chatTokens, tok.Encode("user\n")...)
+		chatTokens = append(chatTokens, tokens...)
+		chatTokens = append(chatTokens, imEnd)
+		// Use raw token IDs for the assistant header to avoid BPE splitting
+		chatTokens = append(chatTokens, 198) // "\n"
+		chatTokens = append(chatTokens, imStart)
+		chatTokens = append(chatTokens, tok.Encode("assistant\n")...)
+
+		fmt.Printf("\nChat template applied:\n")
+		fmt.Printf("  Encoded tokens: %v\n", chatTokens)
+		fmt.Printf("  Token count: %d\n", len(chatTokens))
+		tokens = chatTokens
+	}
 
 	if len(tokens) > 0 {
 		fmt.Printf("\nFirst few tokens decoded:\n")
@@ -153,10 +206,10 @@ func main() {
 		}
 	}
 
-	runInference(mod, tok, tokens, maxNewTokens, temperature)
+	runInference(mod, tok, tokens, maxNewTokens, temperature, debug)
 }
 
-func runInference(mod *model.Qwen3Model, tok interface{}, tokens []int, maxNewTokens int, temperature float32) {
+func runInference(mod *model.Qwen3Model, tok interface{}, tokens []int, maxNewTokens int, temperature float32, debug bool) {
 	fmt.Println("\n========================================")
 	fmt.Println("Running Inference")
 	fmt.Println("========================================")
@@ -179,6 +232,15 @@ func runInference(mod *model.Qwen3Model, tok interface{}, tokens []int, maxNewTo
 	fmt.Printf("Input tokens: %d\n", len(tokens))
 	fmt.Printf("New tokens: %d\n", len(generatedTokens)-len(tokens))
 	fmt.Printf("Generated token IDs: %v\n", generatedTokens)
+
+	if t, ok := tok.(*tokenizer.Tokenizer); ok {
+		fmt.Printf("\nToken-by-token decoding:\n")
+		for i, id := range generatedTokens {
+			if tokenStr, ok := t.GetToken(id); ok {
+				fmt.Printf("  Token %d: ID=%d, Text=%q\n", i, id, tokenStr)
+			}
+		}
+	}
 
 	var decodedText string
 	switch t := tok.(type) {

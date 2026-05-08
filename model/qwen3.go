@@ -42,8 +42,9 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 	kvDim := nKvHeads * headDim
 
 	hiddenStates := make([]float32, seqLen*embeddingDim)
+
 	for i, token := range tokens {
-		embedding := llmmath.EmbeddingLookupDimFirst(model.Weights.TokenEmbedding, model.Config.VocabSize, embeddingDim, token)
+		embedding := llmmath.EmbeddingLookupTokenFirst(model.Weights.TokenEmbedding, model.Config.VocabSize, embeddingDim, token)
 		if embedding == nil {
 			return nil, fmt.Errorf("token %d not found in embedding", token)
 		}
@@ -62,9 +63,9 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 			copy(normedHidden[i*embeddingDim:], normed)
 		}
 
-		q := llmmath.MatMul(normedHidden, blockWeights.AttentionQ, seqLen, qDim, embeddingDim)
-		k := llmmath.MatMul(normedHidden, blockWeights.AttentionK, seqLen, kvDim, embeddingDim)
-		v := llmmath.MatMul(normedHidden, blockWeights.AttentionV, seqLen, kvDim, embeddingDim)
+		q := llmmath.MatMulTransposed(normedHidden, blockWeights.AttentionQ, seqLen, qDim, embeddingDim)
+		k := llmmath.MatMulTransposed(normedHidden, blockWeights.AttentionK, seqLen, kvDim, embeddingDim)
+		v := llmmath.MatMulTransposed(normedHidden, blockWeights.AttentionV, seqLen, kvDim, embeddingDim)
 
 		if q == nil || k == nil || v == nil {
 			return nil, fmt.Errorf("attention projection failed for layer %d", layer)
@@ -91,30 +92,37 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 		for i := 0; i < seqLen; i++ {
 			pos := startPos + i
 
+			for h := 0; h < nKvHeads; h++ {
+				kStart := i*kvDim + h*headDim
+				kVec := k[kStart : kStart+headDim]
+
+				_, kRope := llmmath.RoPE(nil, kVec, pos, headDim, model.Config.RopeFreqBase, llmmath.RoPE_NEOX)
+				if kRope == nil {
+					return nil, fmt.Errorf("RoPE failed for layer %d", layer)
+				}
+
+				copy(k[kStart:], kRope)
+			}
+
 			for h := 0; h < nHeads; h++ {
 				qStart := i*qDim + h*headDim
 				qVec := q[qStart : qStart+headDim]
 
-				kvHeadIdx := h % nKvHeads
-				kStart := i*kvDim + kvHeadIdx*headDim
-				kVec := k[kStart : kStart+headDim]
-
-				qRope, kRope := llmmath.RoPE(qVec, kVec, pos, headDim, model.Config.RopeFreqBase)
-				if qRope == nil || kRope == nil {
+				qRope, _ := llmmath.RoPE(qVec, nil, pos, headDim, model.Config.RopeFreqBase, llmmath.RoPE_NEOX)
+				if qRope == nil {
 					return nil, fmt.Errorf("RoPE failed for layer %d", layer)
 				}
 
 				copy(q[qStart:], qRope)
-				copy(k[kStart:], kRope)
 			}
 
 			model.Cache.Update(layer, k[i*kvDim:], v[i*kvDim:], nKvHeads, headDim)
 		}
 
 		pastK, pastV := model.Cache.GetKV(layer, nKvHeads, headDim)
-		pastSeqLen := model.Cache.Size
+		pastSeqLen := model.Cache.GetSize(layer)
 
-		repeat := nHeads / nKvHeads
+			repeat := nHeads / nKvHeads
 		if repeat > 1 {
 			pastK = llmmath.RepeatKV(pastK, nKvHeads, nHeads, headDim, pastSeqLen)
 			pastV = llmmath.RepeatKV(pastV, nKvHeads, nHeads, headDim, pastSeqLen)
@@ -140,7 +148,7 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 					attentionScores[t] = score * scale
 				}
 
-				causalOffset := startPos - (pastSeqLen - seqLen)
+				causalOffset := pastSeqLen - seqLen
 				for t := 0; t < pastSeqLen; t++ {
 					if t > causalOffset+s {
 						attentionScores[t] = float32(stdmath.Inf(-1))
@@ -161,15 +169,15 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 			}
 		}
 
-		attentionOutput = llmmath.MatMul(attentionOutput, blockWeights.AttentionOutput, seqLen, embeddingDim, qDim)
+		attentionOutput = llmmath.MatMulTransposed(attentionOutput, blockWeights.AttentionOutput, seqLen, embeddingDim, qDim)
 		if attentionOutput == nil {
 			return nil, fmt.Errorf("attention output projection failed for layer %d", layer)
 		}
 
-		hiddenStates = llmmath.VectorAdd(residual, attentionOutput)
+			hiddenStates = llmmath.VectorAdd(residual, attentionOutput)
 
-		residual = make([]float32, len(hiddenStates))
-		copy(residual, hiddenStates)
+			residual = make([]float32, len(hiddenStates))
+			copy(residual, hiddenStates)
 
 		normedHidden = make([]float32, seqLen*embeddingDim)
 		for i := 0; i < seqLen; i++ {
@@ -177,8 +185,14 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 			copy(normedHidden[i*embeddingDim:], normed)
 		}
 
-		ffnGate := llmmath.MatMul(normedHidden, blockWeights.FeedForwardGate, seqLen, model.Config.FeedForwardLength, embeddingDim)
-		ffnUp := llmmath.MatMul(normedHidden, blockWeights.FeedForwardUp, seqLen, model.Config.FeedForwardLength, embeddingDim)
+		if layer == 0 {
+		}
+
+		ffnGate := llmmath.MatMulTransposed(normedHidden, blockWeights.FeedForwardGate, seqLen, model.Config.FeedForwardLength, embeddingDim)
+		ffnUp := llmmath.MatMulTransposed(normedHidden, blockWeights.FeedForwardUp, seqLen, model.Config.FeedForwardLength, embeddingDim)
+
+		if layer == 0 {
+		}
 
 		if ffnGate == nil || ffnUp == nil {
 			return nil, fmt.Errorf("FFN gate/up projection failed for layer %d", layer)
@@ -186,16 +200,26 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 
 		swigluOutput := llmmath.SwiGLU(ffnGate, ffnUp)
 
-		ffnOutput := llmmath.MatMul(swigluOutput, blockWeights.FeedForwardDown, seqLen, embeddingDim, model.Config.FeedForwardLength)
+		if layer == 0 {
+		}
+
+		ffnOutput := llmmath.MatMulTransposed(swigluOutput, blockWeights.FeedForwardDown, seqLen, embeddingDim, model.Config.FeedForwardLength)
 		if ffnOutput == nil {
 			return nil, fmt.Errorf("FFN down projection failed for layer %d", layer)
 		}
 
+		if layer == 0 {
+		}
+
 		hiddenStates = llmmath.VectorAdd(residual, ffnOutput)
+
+		if layer == 0 {
+		}
 	}
 
 	lastTokenHidden := hiddenStates[(seqLen-1)*embeddingDim : seqLen*embeddingDim]
 	normedOutput := llmmath.RMSNorm(lastTokenHidden, model.Weights.OutputNorm, model.Config.LayerNormRmsEps)
+
 
 	if model.Weights.Output != nil {
 		logits := llmmath.MatMulTransposed([]float32(normedOutput), model.Weights.Output, 1, model.Config.VocabSize, embeddingDim)
@@ -204,13 +228,16 @@ func (model *Qwen3Model) Forward(tokens []int, startPos int) ([]float32, error) 
 		}
 		return logits, nil
 	} else {
-		logits := llmmath.MatMul([]float32(normedOutput), model.Weights.TokenEmbedding, 1, model.Config.VocabSize, embeddingDim)
+		logits := llmmath.MatMulTransposed([]float32(normedOutput), model.Weights.TokenEmbedding, 1, model.Config.VocabSize, embeddingDim)
 		if logits == nil {
 			return nil, fmt.Errorf("output projection failed")
 		}
 		return logits, nil
 	}
 }
+
+
+
 
 func (model *Qwen3Model) Generate(tokens []int, maxNewTokens int, temperature float32) ([]int, error) {
 	if len(tokens) == 0 {
@@ -248,7 +275,7 @@ func (model *Qwen3Model) Generate(tokens []int, maxNewTokens int, temperature fl
 				scaledLogits[j] = logits[j] / temperature
 			}
 			probs := llmmath.VectorSoftmax(scaledLogits)
-			nextToken = llmmath.Argmax(probs)
+			nextToken = llmmath.SampleCategorical(probs)
 		}
 
 		generatedTokens = append(generatedTokens, nextToken)

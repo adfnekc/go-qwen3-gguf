@@ -171,7 +171,8 @@ func (r *GGUFReader) LoadTensorDataFromMMap(mmapFile *MMapFile) error {
 			continue
 		}
 
-		data, err := mmapFile.GetSlice(int64(tensor.Offset), int(dataSize))
+		absOffset := r.DataStart + int64(tensor.Offset)
+		data, err := mmapFile.GetSlice(absOffset, int(dataSize))
 		if err != nil {
 			return fmt.Errorf("failed to get tensor %s data: %w", tensor.Name, err)
 		}

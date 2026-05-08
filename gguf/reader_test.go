@@ -218,3 +218,34 @@ func TestDefaultGGUFReaderOptions(t *testing.T) {
 		t.Error("LoadTensors should be true by default")
 	}
 }
+
+func TestDequantizeQ8_0Format(t *testing.T) {
+	blockData := make([]byte, 34)
+	
+	scale := float32(0.5)
+	scaleBits := QuantizeF32ToF16(scale)
+	
+	blockData[0] = byte(scaleBits & 0xFF)
+	blockData[1] = byte((scaleBits >> 8) & 0xFF)
+	
+	for i := 0; i < 32; i++ {
+		blockData[2+i] = byte(int8(i - 16))
+	}
+	
+	result := DequantizeQ8_0(blockData, 32)
+	
+	if result == nil {
+		t.Fatal("DequantizeQ8_0 returned nil")
+	}
+	
+	if len(result) != 32 {
+		t.Errorf("Expected 32 elements, got %d", len(result))
+	}
+	
+	for i := 0; i < 32; i++ {
+		expected := float32(int8(i-16)) * scale
+		if result[i] != expected {
+			t.Errorf("result[%d] = %f, expected %f", i, result[i], expected)
+		}
+	}
+}
