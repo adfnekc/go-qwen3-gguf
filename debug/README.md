@@ -1,101 +1,58 @@
-# Qwen3 GGUF Inference — Debug Programs
+# Qwen3 GGUF 推理引擎 — 调试程序
 
-This directory contains diagnostic programs used during development of a pure-Go
-Qwen3 GGUF inference engine. The model is **Qwen3-0.6B** (Q8_0 quantized).
+本目录包含开发纯 Go Qwen3 GGUF 推理引擎过程中的诊断工具。
+模型为 **Qwen3-0.6B**（Q8_0 量化）。
 
-## Model Architecture (Qwen3-0.6B)
+## 模型架构参数
 
-| Parameter          | Value     |
-|--------------------|-----------|
-| Layers             | 28        |
-| Embedding dim      | 1024      |
-| Heads              | 16        |
-| KV heads           | 8         |
-| Head dim           | 128       |
-| FFN dim (gate/up)  | 3072      |
-| RoPE type          | NEOX (half-split pairing) |
-| RoPE freq base     | 1,000,000 |
-| QK norm            | enabled (per-head RMSNorm) |
-| Weight tying       | enabled (output = tok_embd) |
+| 参数 | 值 |
+|------|------|
+| 层数 | 28 |
+| 嵌入维度 | 1024 |
+| 注意力头数 | 16 |
+| KV 头数 | 8 |
+| 头维度 | 128 |
+| FFN 维度 | 3072 |
+| RoPE 类型 | NEOX（半分割配对） |
+| RoPE 频率基数 | 1,000,000 |
+| QK 归一化 | 启用（逐头 RMSNorm） |
+| 权重绑定 | 启用（output = tok_embd） |
 
-## Investigation Subdirectories
+## 目录结构
 
-| Directory | Topic |
-|-----------|-------|
-| `03_weight_verification/` | Verify dequantization, weight stats, and forward pass correctness |
-| `04_chat_inference/`      | KV cache correctness, layer-by-layer comparison |
-| `05_q8_dequant_verify/`   | Python-based Q8_0 dequantization cross-verification |
-| `06_rope_fix/`           | NEOX RoPE fix and logits comparison with llama.cpp |
+### 按主题分类的诊断工具
 
-## Top-Level Diagnostic Files
+| 目录 | 描述 | 文件数 |
+|------|------|--------|
+| `diag_tok/` | Tokenizer 编码/解码测试 | 3 |
+| `diag_meta/` | 模型元数据与 tensor 形状 | 3 |
+| `diag_weights/` | 权重统计、归一化分析 | 4 |
+| `diag_rms/` | RMS 爆炸追踪（RoPE 修复前） | 4 |
+| `diag_layers/` | 逐层前向传播追踪 | 6 |
 
-### Tokenizer
+### 按调查编号的结构化调查
 
-| File | Description |
-|------|-------------|
-| `check_tok.go` | Encode/decode various strings; verify chat template construction |
-| `check_special.go` | Investigate special tokens (<think>, <|im_start|>, etc.) |
-| `debug_tok.go` | Basic tokenizer encoding tests across common words |
+| 目录 | 调查主题 | 文件 |
+|------|----------|------|
+| `03_weight_verification/` | 权重正确性验证（反量化、统计、前向对比） | 4 |
+| `04_chat_inference/` | KV cache 正确性、逐层对比 | 4 |
+| `05_q8_dequant_verify/` | Python 交叉验证 Q8_0 反量化 | 2 |
+| `06_rope_fix/` | NEOX RoPE 修复与 logits 对比 | 3 |
 
-### Model Metadata
-
-| File | Description |
-|------|-------------|
-| `debug_meta.go` | Print all GGUF metadata key-value pairs |
-| `debug_shapes.go` | Print tensor shapes for key weight tensors |
-
-### Weight Diagnostics
-
-| File | Description |
-|------|-------------|
-| `debug_model.go` | Model loading diagnostics and weight stats |
-| `debug_scales.go` | Per-layer weight scaling analysis |
-| `debug_norm.go` | Output norm weight stats and token embedding values |
-| `debug_norms.go` | QK norm weight analysis |
-
-### Per-Layer Diagnostics
-
-| File | Description |
-|------|-------------|
-| `debug_layers.go` | Forward one layer and check output |
-| `debug_layers2.go` | Extended layer diagnostics with top-10 token predictions |
-| `debug_alllayers.go` | All-layer diagnostic trace |
-| `debug_isolate.go` | Isolate RMS explosion per layer |
-| `debug_embedding.go` | Embedding lookup and output projection test |
-
-### RMS Diagnostics
-
-| File | Description |
-|------|-------------|
-| `debug_rms.go` | Full 28-layer RMS trace after each op |
-| `debug_layer2.go` | Detailed per-operation trace for layers 0-2 |
-| `debug_no_qknorm.go` | Test with QK norm weights disabled |
-| `debug_rmsnorm.go` | RMSNorm verification |
-| `debug_forward.go` | Forward() method output — top token predictions |
-
-### Comparison
-
-| File | Description |
-|------|-------------|
-| `debug_compare.go` | Compare implementations |
-
-## How to Run
+## 运行方式
 
 ```bash
-go run debug/<name>.go /path/to/model.gguf
+go run debug/<dir>/<name>.go /path/to/model.gguf
 ```
 
-## History of Fixed Bugs
+## 已修复 Bug 历史
 
-1. **MatMul direction**: Original used `MatMul` (weight layout
-   output_dim×input_dim); ggml uses `MatMulTransposed`. Fixed by switching.
+1. **MatMul 方向**：从 `MatMul` 改为 `MatMulTransposed`（匹配 ggml_mul_mat）
 
-2. **Embedding layout**: Original used `EmbeddingLookupDimFirst`; ggml stores
-   token embeddings as `[vocab_size, embedding_dim]` → `EmbeddingLookupTokenFirst`.
+2. **嵌入布局**：从 `EmbeddingLookupDimFirst` 改为 `EmbeddingLookupTokenFirst`
 
-3. **RoPE type**: Used NORMAL (consecutive pairing (0,1), (2,3), ...) but Qwen3
-   requires NEOX (half-split pairing (0,64), (1,65), ..., (63,127)). This was
-   the root cause of garbled output.
+3. **GGUF tensor 偏移**：mmap 加载缺失 `DataStart` 偏移，导致加载错误权重
 
-4. **GGUF tensor offset**: MMAP tensor loading was missing `DataStart` offset,
-   causing wrong weights to be loaded from mmap.
+4. **RoPE 类型（关键修复）**：使用 NORMAL（连续配对 (0,1), (2,3)...）但
+   Qwen3 需要 NEOX（半分割配对 (0,64), (1,65)...）。这是乱码输出的根因。
+   修复后模型生成文本从乱码变成正确的推理链。
