@@ -1,1 +1,2 @@
 *.gguf
+llama.cpp_ref/
