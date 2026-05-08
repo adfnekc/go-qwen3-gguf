@@ -34,39 +34,38 @@ func (m *Qwen3Model) ResetCache() {
 }
 
 func (m *Qwen3Model) embeddingLookup(tokens []int, seqLen int) ([]float32, error) {
-	hs := make([]float32, seqLen*m.Config.EmbeddingLength)
+	vocabSize := m.Config.VocabSize
+	embDim := m.Config.EmbeddingLength
+	hs := make([]float32, seqLen*embDim)
 	for i, token := range tokens {
-		emb := llmmath.EmbeddingLookupTokenFirst(m.Weights.TokenEmbedding, m.Config.VocabSize, m.Config.EmbeddingLength, token)
-		if emb == nil {
-			return nil, fmt.Errorf("token %d not found in embedding", token)
+		if token < 0 || token >= vocabSize {
+			return nil, fmt.Errorf("token %d out of range", token)
 		}
-		copy(hs[i*m.Config.EmbeddingLength:], emb)
+		start := token * embDim
+		copy(hs[i*embDim:], m.Weights.TokenEmbedding[start:start+embDim])
 	}
 	return hs, nil
 }
 
-func applyQKNorm(q, k []float32, bw *Qwen3BlockWeights, config *Qwen3Config, seqLen, nHeads, nKvHeads, headDim int) ([]float32, []float32) {
+func applyQKNorm(q, k []float32, bw *Qwen3BlockWeights, config *Qwen3Config, seqLen, nHeads, nKvHeads, headDim int) {
 	if !config.QKVRMSNorm || bw.AttentionQNorm == nil || bw.AttentionKNorm == nil {
-		return q, k
+		return
 	}
 	qDim := nHeads * headDim
 	kvDim := nKvHeads * headDim
 	for i := 0; i < seqLen; i++ {
 		for h := 0; h < nHeads; h++ {
 			start := i*qDim + h*headDim
-			normed := llmmath.RMSNorm(q[start:start+headDim], bw.AttentionQNorm, config.LayerNormRmsEps)
-			copy(q[start:], normed)
+			llmmath.RMSNormInPlace(q[start:start+headDim], q[start:start+headDim], bw.AttentionQNorm, config.LayerNormRmsEps)
 		}
 		for h := 0; h < nKvHeads; h++ {
 			start := i*kvDim + h*headDim
-			normed := llmmath.RMSNorm(k[start:start+headDim], bw.AttentionKNorm, config.LayerNormRmsEps)
-			copy(k[start:], normed)
+			llmmath.RMSNormInPlace(k[start:start+headDim], k[start:start+headDim], bw.AttentionKNorm, config.LayerNormRmsEps)
 		}
 	}
-	return q, k
 }
 
-func applyRoPEToHeads(q, k []float32, startPos, seqLen, nHeads, nKvHeads, headDim int, ropeFreqBase float32) ([]float32, []float32) {
+func applyRoPEToHeads(q, k []float32, startPos, seqLen, nHeads, nKvHeads, headDim int, ropeFreqBase float32) {
 	qDim := nHeads * headDim
 	kvDim := nKvHeads * headDim
 	for i := 0; i < seqLen; i++ {
@@ -82,7 +81,6 @@ func applyRoPEToHeads(q, k []float32, startPos, seqLen, nHeads, nKvHeads, headDi
 			copy(q[start:], qRope)
 		}
 	}
-	return q, k
 }
 
 func applyAttention(q, k, v []float32, cache *KVCache, layer, seqLen, nHeads, nKvHeads, headDim int, scoreBuf, headBuf []float32) []float32 {
@@ -182,12 +180,12 @@ func (m *Qwen3Model) forwardLayer(hs []float32, bw *Qwen3BlockWeights, layer, st
 	}
 
 	// QK norm + RoPE
-	q, k = applyQKNorm(q, k, bw, m.Config, seqLen, nHeads, nKvHeads, headDim)
-	q, k = applyRoPEToHeads(q, k, startPos, seqLen, nHeads, nKvHeads, headDim, m.Config.RopeFreqBase)
+	applyQKNorm(q, k, bw, m.Config, seqLen, nHeads, nKvHeads, headDim)
+	applyRoPEToHeads(q, k, startPos, seqLen, nHeads, nKvHeads, headDim, m.Config.RopeFreqBase)
 
 	// KV cache update
 	for i := 0; i < seqLen; i++ {
-		m.Cache.Update(layer, k[i*kvDim:(i+1)*kvDim], v[i*kvDim:(i+1)*kvDim], nKvHeads, headDim)
+		m.Cache.Update(layer, k[i*kvDim:(i+1)*kvDim], v[i*kvDim:(i+1)*kvDim])
 	}
 
 	// Attention
@@ -294,7 +292,7 @@ func (m *Qwen3Model) Generate(tokens []int, maxNewTokens int, temperature float3
 
 		generated = append(generated, nextToken)
 
-		if nextToken == 151645 || nextToken == 151643 {
+		if nextToken == TokenIMEnd || nextToken == 151643 {
 			break
 		}
 	}

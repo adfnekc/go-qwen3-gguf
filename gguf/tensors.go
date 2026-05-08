@@ -23,16 +23,8 @@ func (r *GGUFReader) readTensorInfo(reader io.Reader) error {
 		}
 
 		alignment := int64(32)
-		if val, ok := r.GetMetadata("general.alignment"); ok {
-			if alignInt, ok := val.(int64); ok && alignInt > 0 {
-				alignment = alignInt
-			} else if alignInt, ok := val.(int32); ok && alignInt > 0 {
-				alignment = int64(alignInt)
-			} else if alignUint, ok := val.(uint64); ok && alignUint > 0 {
-				alignment = int64(alignUint)
-			} else if alignUint, ok := val.(uint32); ok && alignUint > 0 {
-				alignment = int64(alignUint)
-			}
+		if v, ok := r.GetMetadataInt("general.alignment"); ok && v > 0 {
+			alignment = v
 		}
 
 		alignedPos := (currentPos + alignment - 1) & ^(alignment - 1)

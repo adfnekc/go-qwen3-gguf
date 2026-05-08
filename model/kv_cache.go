@@ -17,7 +17,9 @@ func NewKVCache(maxSeqLen, nLayers, nKvHeads, headDim int) *KVCache {
 	return &KVCache{Keys: keys, Values: values, Size: size}
 }
 
-func (c *KVCache) Update(layer int, key, value []float32, nKvHeads, headDim int) {
+// Update appends key/value slices to the cache for the given layer.
+// The caller must not reuse the key/value slices after this call.
+func (c *KVCache) Update(layer int, key, value []float32) {
 	k := make([]float32, len(key))
 	v := make([]float32, len(value))
 	copy(k, key)

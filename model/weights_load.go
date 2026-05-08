@@ -56,15 +56,6 @@ func loadTensorMMap(r *gguf.GGUFReader, mmapFile *gguf.MMapFile, name string) ([
 	return result, nil
 }
 
-func resolveTensorName(reader GGUFReader, names []string) (string, bool) {
-	for _, name := range names {
-		if _, _, ok := reader.GetTensor(name); ok {
-			return name, true
-		}
-	}
-	return "", false
-}
-
 func resolveBlockPrefix(reader GGUFReader, blockIdx int) (string, bool) {
 	prefixes := []string{
 		fmt.Sprintf("blk.%d.", blockIdx),
@@ -93,7 +84,7 @@ func loadFirst(loadFn func(string) ([]float32, error), names []string) ([]float3
 	return nil, lastErr
 }
 
-func loadBlockWeights(loadFn func(string) ([]float32, error), prefix string, layer int) (*Qwen3BlockWeights, error) {
+func loadBlockWeights(loadFn func(string) ([]float32, error), prefix string) (*Qwen3BlockWeights, error) {
 	bw := &Qwen3BlockWeights{}
 
 	var err error
@@ -178,7 +169,7 @@ func LoadQwen3Weights(reader GGUFReader, config *Qwen3Config) (*Qwen3Weights, er
 		if !ok {
 			return nil, fmt.Errorf("block %d not found", i)
 		}
-		bw, err := loadBlockWeights(loadFn, prefix, i)
+		bw, err := loadBlockWeights(loadFn, prefix)
 		if err != nil {
 			return nil, fmt.Errorf("block %d: %w", i, err)
 		}
@@ -217,7 +208,7 @@ func LoadQwen3WeightsMMap(reader *gguf.GGUFReader, config *Qwen3Config, mmapFile
 		if !ok {
 			return nil, fmt.Errorf("block %d not found", i)
 		}
-		bw, err := loadBlockWeights(loadFn, prefix, i)
+		bw, err := loadBlockWeights(loadFn, prefix)
 		if err != nil {
 			return nil, fmt.Errorf("block %d: %w", i, err)
 		}

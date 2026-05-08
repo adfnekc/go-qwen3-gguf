@@ -128,6 +128,14 @@ func RMSNorm(x, weight []float32, eps float32) []float32 {
 		return nil
 	}
 
+	result := make([]float32, len(x))
+	RMSNormInPlace(result, x, weight, eps)
+	return result
+}
+
+// RMSNormInPlace computes the same RMSNorm but writes directly into dst.
+// dst must be the same length as x and weight.
+func RMSNormInPlace(dst, x, weight []float32, eps float32) {
 	var sum float32 = 0.0
 	for i := range x {
 		sum += x[i] * x[i]
@@ -135,12 +143,9 @@ func RMSNorm(x, weight []float32, eps float32) []float32 {
 	mean := sum / float32(len(x))
 	rms := float32(math.Sqrt(float64(mean + eps)))
 
-	result := make([]float32, len(x))
 	for i := range x {
-		result[i] = (x[i] / rms) * weight[i]
+		dst[i] = (x[i] / rms) * weight[i]
 	}
-
-	return result
 }
 
 func Silu(x float32) float32 {
